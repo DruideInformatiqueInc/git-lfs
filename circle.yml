@@ -1,46 +1,59 @@
-machine:
-  environment:
-    GIT_LFS_TEST_DIR: $HOME/git-lfs-tests
-    GIT_SOURCE_REPO: https://github.com/git/git.git
-    GIT_EARLIEST_SUPPORTED_VERSION: v2.0.0
-    GIT_LATEST_SOURCE_BRANCH: master
-    XCODE_SCHEME: test
-    XCODE_WORKSPACE: test
-    XCODE_PROJECT: test
-    GOPATH: $HOME/git-lfs/.go
-    NO_OPENSSL: YesPlease
-    APPLE_COMMON_CRYPTO: YesPlease
-  xcode:
-    version: 8.2
+version: 2
 
-general:
-  build_dir: .go/src/github.com/git-lfs/git-lfs
+jobs:
+  build:
+    working_directory: ~/git-lfs/git-lfs/.go/src/github.com/git-lfs/git-lfs
+    parallelism: 1
+    shell: /bin/bash --login
+    environment:
+      GOPATH: $HOME/git-lfs/.go
+      CIRCLE_TEST_REPORTS: /tmp/circleci-test-results
+      NO_OPENSSL: YesPlease
+      GIT_SOURCE_REPO: https://github.com/git/git.git
+      CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
+      GIT_EARLIEST_SUPPORTED_VERSION: v2.0.0
+      GIT_LFS_TEST_DIR: $HOME/git-lfs-tests
+      GIT_LATEST_SOURCE_BRANCH: master
+      APPLE_COMMON_CRYPTO: YesPlease
+      XCODE_PROJECT: test
+      XCODE_WORKSPACE: test
+      XCODE_SCHEME: test
+    macos:
+      xcode: '8.2'
+    steps:
+    # Machine Setup
+    #   If you break your build into multiple jobs with workflows, you will probably want to do the parts of this that are relevant in each
+    # The following `checkout` command checks out your code to your working directory. In 1.0 we did this implicitly. In 2.0 you can choose where in the course of a job your code should be checked out.
+    - checkout
+    # Prepare for artifact and test results  collection equivalent to how it was done on 1.0.
+    # In many cases you can simplify this from what is generated here.
+    # 'See docs on artifact collection here https://circleci.com/docs/2.0/artifacts/'
+    - run: mkdir -p $CIRCLE_ARTIFACTS $CIRCLE_TEST_REPORTS
+    # This is based on your 1.0 configuration file or project settings
+    - run:
+        working_directory: ~/git-lfs/git-lfs/.go/src/github.com/git-lfs/git-lfs
+        command: echo -e "export GIT_LFS_TEST_DIR=$HOME/git-lfs-tests\nexport GIT_SOURCE_REPO=https://github.com/git/git.git\nexport GIT_EARLIEST_SUPPORTED_VERSION=v2.0.0\nexport GIT_LATEST_SOURCE_BRANCH=master\nexport XCODE_SCHEME=test\nexport XCODE_WORKSPACE=test\nexport XCODE_PROJECT=test\nexport GOPATH=$HOME/git-lfs/.go\nexport NO_OPENSSL=YesPlease\nexport APPLE_COMMON_CRYPTO=YesPlease" >> $BASH_ENV
+    # Checkout
+    #   This would typically go in either a build or a build-and-test job when using workflows
+    # This is based on your 1.0 configuration file or project settings
+    - run: mkdir -p ~/git-lfs/.go/src/github.com/git-lfs
+    - run: ln -s ~/git-lfs ~/git-lfs/.go/src/github.com/git-lfs
+    - run: brew update
+    - run: brew prune
+    - run: brew upgrade go || brew install go
+    - run: brew upgrade git || brew install git
+    - run: brew upgrade gettext || brew install gettext
+    - run: brew link --force gettext
 
-checkout:
-  post:
-    - mkdir -p ~/git-lfs/.go/src/github.com/git-lfs
-    - ln -s ~/git-lfs ~/git-lfs/.go/src/github.com/git-lfs
+    - run: git clone $GIT_SOURCE_REPO git-source
+    - run: go get -d -v github.com/spf13/cobra
+    - run: go get -d -v github.com/ThomsonReutersEikon/go-ntlm/ntlm
+    - run: script/bootstrap
+    - run: script/cibuild
 
-dependencies:
-  pre:
-    - brew update
-    - brew prune
-    - brew upgrade go || brew install go
-    - brew upgrade git || brew install git
-    - brew upgrade gettext || brew install gettext
-    - brew link --force gettext
-    - git clone $GIT_SOURCE_REPO git-source
-  override:
-    - script/bootstrap
-
-    # needed for git-lfs-test-server-api
-    - go get -d -v github.com/spf13/cobra
-    - go get -d -v github.com/ThomsonReutersEikon/go-ntlm/ntlm
-
-test:
-  override:
-    - script/cibuild
-    - script/install-git-source "$GIT_EARLIEST_SUPPORTED_VERSION"
-    - PATH="$HOME/bin:$PATH" SKIPCOMPILE=1 script/integration
-    - script/install-git-source "$GIT_LATEST_SOURCE_BRANCH"
-    - PATH="$HOME/bin:$PATH" SKIPCOMPILE=1 script/integration
+    # Run tests on $GIT_EARLIEST_SUPPORTED_VERSION.
+    - run: script/install-git-source "$GIT_EARLIEST_SUPPORTED_VERSION"
+    - run: PATH="$HOME/bin:$PATH" SKIPCOMPILE=1 script/integration
+    # Run tests on $GIT_LATEST_SOURCE_BRANCH.
+    - run: script/install-git-source "$GIT_LATEST_SOURCE_BRANCH"
+    - run: PATH="$HOME/bin:$PATH" SKIPCOMPILE=1 script/integration
